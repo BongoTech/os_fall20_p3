@@ -27,6 +27,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#define FILENAMESIZE 64
+
 //help declaration
 int help(char*);
 
@@ -37,13 +39,26 @@ int main(int argc, char *argv[])
 {
 //*****************************************************
 //BEGIN: Command line processing.
+    
+    int mx_chdrn = 5;
+    int ptime = 20;
+    char logfile[FILENAMESIZE] = "log.out";
 
     int option;
-    while ( (option = getopt(argc, argv, ":h")) != -1 ) {
+    while ( (option = getopt(argc, argv, ":c:l:t:h")) != -1 ) {
         switch ( option ) {
             case 'h':
                 help(argv[0]);
                 return 0;
+            case 'c':
+                mx_chdrn = atoi(optarg);
+                break;
+            case 'l':
+                strncpy(logfile, optarg, FILENAMESIZE-1);
+                break;
+            case 't':
+                ptime = atoi(optarg);
+                break;
             case ':':
                 fprintf(stderr, "%s: Error: Missing argument value.\n%s\n", argv[0], strerror(errno));
                 return 1;
@@ -52,6 +67,11 @@ int main(int argc, char *argv[])
                 return 1;
         }
     }
+
+    printf("Max children: %d\n", mx_chdrn);
+    printf("Logfile name: %s\n", logfile);
+    printf("Time to run: %d\n", ptime);
+
 
     return 0;
 }
