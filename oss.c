@@ -118,7 +118,74 @@ int main(int argc, char *argv[])
 
 //END: Setting up shared memory.
 //*****************************************************
+//BEGIN: Creating children.
+
+    //Array containing pids of all children.
+    //Used for killing them after interrupt.
+    pid_t childpid[100];
+    //The number of children at a given time.
+    int child_count = 0;
+    //The number of children created so far.
+    int child_count_total = 0;
+    //The logical id given to a child.
+    int child_id = 1;
+
+    do {
+        /*If an interrupt occured, break.
+        if ( done_flag ) {
+            break;
+        }*/
+
+        //If there are less children right now than the
+        //simultaneous max,
+        if ( child_count < mx_chdrn ) {
+            //Check if there is still simulated time left.
+            if ( 1 /*TODO: Put the simulated time check here.*/ ) {        
+                //Create a child.
+                if ( (childpid[child_count_total] = fork()) < 0 ) {
+                    fprintf(stderr, "%s: Error: fork() failed to create child.\n%s\n", argv[0], strerror(errno));
+                    return 1;
+                } else if ( childpid[child_count_total] == 0 ) {
+                    //Inside child,
+                    //Build the argv.
+                    //char arg1[PALINSIZE];
+                    //char arg2[16];
+                    //char arg3[16];
+                    //sscanf(buffer, "%s", arg1);
+                    //sprintf(arg2, "%d", max_lifetime_children);
+                    //sprintf(arg3, "%d", child_id);
+                    char *arg_vector[] = {"./user", NULL};
+                    //exec.
+                    execv(arg_vector[0], arg_vector);
+                } else {
+                    //Inside parent,
+                    //increment the simultaneous child count.
+                    child_count++;
+                    //increment the total child count.
+                    child_count_total++;
+                    //increment the logical child_id.
+                    child_id++;
+                }
+            } else {
+                //Simulated time ran out.
+                break;
+            }
+        }
+
+        //See if a child finished.
+        if ( waitpid(-1, NULL, WNOHANG) > 0 ) {
+            child_count--;
+        }
+
+    //TODO: Fix this check for more than one child.
+    } while ( (child_count_total < 1) );
+
+//END: Creating children.
+//*****************************************************
 //BEGIN: Finishing up.
+
+    //Wait for all children.
+    while ( wait(NULL) > 0 );
 
     //Clean up shared memory.
     shmdt(shmp);
