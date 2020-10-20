@@ -4,11 +4,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ipc.h>
+#include <sys/msg.h>
 #include <sys/shm.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+typedef struct {
+    long mtype;
+} mymsg_t;
 
 int main(int argc, char *argv[])
 {
@@ -53,10 +58,56 @@ int main(int argc, char *argv[])
 
 
 //END: Setting up shared memory.
+//*****************************************************
+//BEGIN: Setting up message queue.
+
+    mymsg_t msg;
+    int msgid;
+    key_t msgkey;
+
+    //Generate key deterministically so that children
+    //can do the same and attach to message queue.
+    if ( (msgkey = ftok("./", 922)) == -1 ) {
+        fprintf(stderr, "%s: Error: ftok() failed to generated key.\n%s\n", argv[0], strerror(errno));
+        return 1;
+    }
+
+    if ( (msgid = msgget(msgkey, 0666)) == -1) {
+        fprintf(stderr, "%s: Error: msgget() failed to attach to message queue.\n%s\n", argv[0], strerror(errno));
+        return 1;
+    }
+
+    /*
+    if ( (msg = (mymsg_t*)malloc(sizeof(mymsg_t))) == NULL ) {
+        fprintf(stderr, "%s: Error: malloc() failed to allocate message.\n%s\n", argv[0], strerror(errno));
+        return 1;
+    }
+
+    //Arbitrary.
+    //msg->mtype = 1;
+    
+    if ( msgsnd(msgid, msg, 0, 0) == -1 ) {
+        fprintf(stderr, "%s: Error: msgsnd() failed to send message.\n%s\n", argv[0], strerror(errno));
+        free(msg);
+        return 1;
+    }
+    free(msg);*/
+
+    if ( msgrcv(msgid, &msg, 0, 0, 0) == -1 ) {
+        fprintf(stderr, "%s: Error: msgrcv() failed to receive message.\n%s\n", argv[0], strerror(errno));
+        return 1;
+    }
+
+//END: Setting up message queue.
+//*****************************************************
+//BEGIN: Finishing up.
 
     printf("Hello from user.\n");
 
     shmdt(shmp);
+
+    //Close message queue.
+    msgctl(msgid, IPC_RMID, NULL);
 
     return 0;
 }
