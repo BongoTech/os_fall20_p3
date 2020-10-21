@@ -15,4 +15,4 @@ $(sub_target): $(sub_dependencies)
 	$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm $(targets)
+	rm $(targets) *.out

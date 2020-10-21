@@ -2,8 +2,10 @@
 //Program Name: oss
 //Author: Cory Mckiel
 //Date Created: Oct 19, 2020
-//Last Modified: Oct 19, 2020
+//Last Modified: Oct 20, 2020
 //Program Description:
+//      oss creates children and manages them to do some
+//      dummy task.
 //
 //Needed Files:
 //      user.c
@@ -30,6 +32,7 @@
 
 #define FILENAMESIZE 64
 
+//struct for message queue.
 typedef struct {
     long mtype;
 } mymsg_t;
@@ -82,15 +85,19 @@ static int setuptimer(int time)
 //*****************************************************
 int main(int argc, char *argv[])
 {
-    //*****************************************************
-    //BEGIN: Command line processing.
+//*****************************************************
+//BEGIN: Command line processing.
 
     //Used throughout the program for iterating.
     int i = 0; 
 
+    //max num of concurrent children.
     int mx_chdrn = 5;
+    //max real time allocated to this process.
     int ptime = 20;
+    //Log file name and pointer.
     char logfile[FILENAMESIZE] = "log.out";
+    FILE *fp = NULL;
 
     int option;
     while ( (option = getopt(argc, argv, ":c:l:t:h")) != -1 ) {
@@ -116,9 +123,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    printf("Max children: %d\n", mx_chdrn);
-    printf("Logfile name: %s\n", logfile);
-    printf("Time to run: %d\n", ptime);
+    fp = fopen(logfile, "a");
 
 //END: Command line processing.
 //*****************************************************
@@ -169,11 +174,6 @@ int main(int argc, char *argv[])
     for (i = 0; i < shm_size; i++) {
         *(shmp + i) = 0;
     }
-    for (i = 0; i < shm_size; i++) {
-       printf("shmp at %d: %d\n", i, *(shmp + i)); 
-    }
-
-
 
 //END: Setting up shared memory.
 //*****************************************************
@@ -209,8 +209,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-//    free(msg);
-
 //END: Setting up message queue.
 //*****************************************************
 //BEGIN: Creating children.
@@ -224,8 +222,12 @@ int main(int argc, char *argv[])
     int child_count_total = 0;
     //The logical id given to a child.
     int child_id = 1;
-
+    //Number of children that have finished.
     int done_child = 0;
+    //Flag for end of simulated time.
+    int time_is_up = 0;
+    int sec = 0;
+    int nsec = 0;
 
     do {
         //If an interrupt occured, break.
@@ -235,9 +237,9 @@ int main(int argc, char *argv[])
 
         //If there are less children right now than the
         //simultaneous max,
-        if ( child_count < mx_chdrn ) {
+        if ( (child_count < mx_chdrn) && (child_count_total < 100) ) {
             //Check if there is still simulated time left.
-            if ( 1 /*TODO: Put the simulated time check here.*/ ) {        
+            if ( 1 /*Meant to take this out.*/ ) {        
                 //Create a child.
                 if ( (childpid[child_count_total] = fork()) < 0 ) {
                     fprintf(stderr, "%s: Error: fork() failed to create child.\n%s\n", argv[0], strerror(errno));
@@ -245,17 +247,12 @@ int main(int argc, char *argv[])
                 } else if ( childpid[child_count_total] == 0 ) {
                     //Inside child,
                     //Build the argv.
-                    //char arg1[PALINSIZE];
-                    //char arg2[16];
-                    //char arg3[16];
-                    //sscanf(buffer, "%s", arg1);
-                    //sprintf(arg2, "%d", max_lifetime_children);
-                    //sprintf(arg3, "%d", child_id);
                     char *arg_vector[] = {"./user", NULL};
                     //exec.
                     execv(arg_vector[0], arg_vector);
                 } else {
                     //Inside parent,
+                    fprintf(fp, "Master: Creating new child pid %d at my time %d.%d\n", childpid[child_count_total],sec, nsec);
                     //increment the simultaneous child count.
                     child_count++;
                     //increment the total child count.
@@ -264,35 +261,47 @@ int main(int argc, char *argv[])
                     child_id++;
                 }
             } else {
-                //Simulated time ran out.
                 break;
             }
         }
 
-
         //If I grabbed a message from the queue.
         if (msgrcv(msgid, msg, 0, 0, 0) == 0) {
 
-            fprintf(stderr, "oss entering critical section.\n");
             //CRITICAL SECTION:
             //
             //if shm_pid is not 0, it contains
             //the pid of child who is done.
             
-            fprintf(stderr, "oss: shm_pid: %d.\n", *(shmp + 2));
-
             if ( *(shmp + 2) != 0 ) {
-                //TODO: Log instead of print PID.
-                fprintf(stderr, "oss: user %d finished.\n", *(shmp + 2));
+                fprintf(fp, "Master: Child pid %d is terminating at system clock time %d.%d\n", *(shmp + 2), *shmp, *(shmp+1));
+                
+                waitpid(*(shmp + 2), NULL, 0);
                 //Set shm_pid back to 0.
                 *(shmp + 2) = 0;
                 //Decrement the current number of children.
-                //child_count--;
-
+                child_count--;
+                //Increase the number of finished children.
                 done_child++;
             }
-            
-            fprintf(stderr, "oss exiting critical section.\n");
+    
+            //Increment the clock.
+            if (*(shmp+1) + 100 >= 1000000000) {
+                *shmp += 1;
+                *(shmp+1) = 0;
+            } else {
+                *(shmp+1) += 100;
+            }
+          
+            //Save the clock.
+            sec = *shmp;
+            nsec = *(shmp+1);
+ 
+            //Check if over 2 sim seconds.
+            if (*shmp >= 2) {
+                time_is_up = 1;
+            }
+ 
             //Make sure to send the msg back into the queue
             //so someone else can go into critical section.
             if ( msgsnd(msgid, msg, 0, 0) == -1 ) {
@@ -303,13 +312,7 @@ int main(int argc, char *argv[])
 
         }
 
-        /*See if a child finished.
-        if ( waitpid(-1, NULL, WNOHANG) > 0 ) {
-            child_count--;
-        }*/
-
-    //TODO: Fix this check for more than one child.
-    } while (done_child < 5);
+    } while (done_child != 100 && !time_is_up);
 
 //END: Creating children.
 //*****************************************************
@@ -325,6 +328,8 @@ int main(int argc, char *argv[])
     //Wait for all children.
     while ( wait(NULL) > 0 );
 
+    fprintf(stderr, "oss: Finished at time %d.%d\n", *shmp, *(shmp+1));
+
     //Clean up shared memory.
     shmdt(shmp);
     shmctl(shmid, IPC_RMID, 0);
@@ -334,11 +339,16 @@ int main(int argc, char *argv[])
 
     free(msg);
 
+    fclose(fp);
+
     return 0;
 }
 
 int help(char *progname)
 {
-    printf("hElp mE..\n");
+    printf("%s: Usage: %s [-c x] [-l filename] [-t z]\n", progname, progname);
+    printf("Where: x is max number of concurrent children. Default 5\n");
+    printf("filename is name of output file. Default: log.out\n");
+    printf("z is real time in seconds before program should terminate. Default: 20\n");
     return 0;
 }

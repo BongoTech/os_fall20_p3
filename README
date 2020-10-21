@@ -1,0 +1,48 @@
+NAME:       oss
+
+DESCRIPTION:
+            oss creates children user and manages them.
+            user does some dummy task.
+            A shared clock is protected by critical section
+            enforced by message queue.
+
+FILES: oss.c user.c
+
+TO COMPILE:
+            OPTION ONE: Use supplied makefile. 
+                Type: make.
+            OPTION TWO: Use gcc compiler.
+                Type: gcc -Wall -g oss.c -o oss
+                Type: gcc -Wall -g user.c -o user
+
+TO RUN:
+            ./oss [-c x] [-l filename] [-t z]
+            OR
+            ./oss -h
+
+            Where:
+
+                [] denotes optional argument
+
+                x is the max number of children oss will create at one time.
+                Default 5.
+
+                filename is the name of the log output file.
+                Default log.out
+
+                z is the time in seconds that the entire process
+                    has to complete the operation.
+                Default 20.
+
+                -h displays a help message. 
+            
+VERSION CONTROL:
+            This project uses git and github to keep track of versions.
+
+            To see the list of commits, Type: git log
+
+NOTES:
+            * I did not use perror in this assignment because it 
+                limits the formatting of error output. Instead I used
+                fprintf to stderr and included errno with my own custom message.
+

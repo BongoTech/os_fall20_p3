@@ -1,3 +1,21 @@
+//*****************************************************
+//Program Name: user
+//Author: Cory Mckiel
+//Date Created: Oct 19, 2020
+//Last Modified: Oct 20, 2020
+//Program Description:
+//      user does a dummy task.
+//
+//Needed Files:
+//      oss.c
+//Compilation Instructions:
+//      Option 1: Using the supplied Makefile.
+//          Type: make
+//      Option 2: Using gcc.
+//          Type: gcc -Wall -g oss.c -o oss
+//                gcc -Wall -g user.c -o user
+//*****************************************************
+
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -11,6 +29,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+//Struct for message queue.
 typedef struct {
     long mtype;
 } mymsg_t;
@@ -20,7 +39,6 @@ int main(int argc, char *argv[])
 
 //*****************************************************
 ////BEGIN: Setting up shared memory.
-
     
     key_t key;
     int shmid;
@@ -50,12 +68,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /*for (i = 0; i < shm_size; i++) {
-       printf("User: shmp at %d: %d\n", i, *(shmp + i)); 
-    }*/
-
-
-
 //END: Setting up shared memory.
 //*****************************************************
 //BEGIN: Setting up message queue.
@@ -76,26 +88,68 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /*
-    if ( (msg = (mymsg_t*)malloc(sizeof(mymsg_t))) == NULL ) {
-        fprintf(stderr, "%s: Error: malloc() failed to allocate message.\n%s\n", argv[0], strerror(errno));
-        return 1;
-    }
+//END: Setting up message queue.
+//*****************************************************
+//BEGIN: Determining runtime.
 
-    //Arbitrary.
-    //msg->mtype = 1;
+    //Generate a number between 10,000 and 1,000,000.
+    int runtime = ((rand() % 100) + 1) * 10000;
     
-    if ( msgsnd(msgid, msg, 0, 0) == -1 ) {
-        fprintf(stderr, "%s: Error: msgsnd() failed to send message.\n%s\n", argv[0], strerror(errno));
-        free(msg);
+    if ( msgrcv(msgid, &msg, 0, 0, 0) == -1 ) {
+        fprintf(stderr, "%s: Error: msgrcv() failed to receive message.\n%s\n", argv[0], strerror(errno));
         return 1;
     }
-    free(msg);*/
+    //CRITICAL SECTION:
 
+    //Save the time.
+    int sec = *(shmp);
+    int nsec = *(shmp+1);
+
+    //Determine what time the child should stop.
+    if ( nsec + runtime >= 1000000000 ) {
+        sec += 1;
+        nsec = (nsec + runtime) - 1000000000;
+    } else {
+        nsec += runtime;
+    }
+    
+    //END CRITICAL SECTION.
+    if ( msgsnd(msgid, &msg, 0, 0) == -1 ) {
+        fprintf(stderr, "%s: Error: msgsnd() failed to send message.\n%s\n", argv[0], strerror(errno));
+        return 1;
+    }
+
+    //Do the 'work'. 
+    int workdone = 0;
+    do {
+        if ( msgrcv(msgid, &msg, 0, 0, 0) == -1 ) {
+            fprintf(stderr, "%s: Error: msgrcv() failed to receive message.\n%s\n", argv[0], strerror(errno));
+            return 1;
+        }
+
+        //CRITICAL SECTION:
+        
+        //Check to see if the time has passed.
+        if ( sec < *(shmp) ) {
+            workdone = 1;
+        } else if ( sec == *(shmp) ) {
+            if ( nsec < *(shmp+1) ) {
+                workdone = 1;
+            }
+        }
+        
+        //END CRITICAL SECTION.
+        if ( msgsnd(msgid, &msg, 0, 0) == -1 ) {
+            fprintf(stderr, "%s: Error: msgsnd() failed to send message.\n%s\n", argv[0], strerror(errno));
+            return 1;
+        }
+    
+    } while (!workdone);
+
+
+    //Wait your turn to tell oss you are finished.
     int finished = 0;
     do {
-
-        fprintf(stderr, "%d: Waiting for message.\n", getpid());
         //Wait for message.
         if ( msgrcv(msgid, &msg, 0, 0, 0) == -1 ) {
             fprintf(stderr, "%s: Error: msgrcv() failed to receive message.\n%s\n", argv[0], strerror(errno));
@@ -103,18 +157,13 @@ int main(int argc, char *argv[])
         }
         //We now have the message.
         //CRITICAL SECTION.
-        fprintf(stderr, "%d: Entering critical section.\n", getpid());
 
-
-        fprintf(stderr, "%d: shm_pid: %d\n", getpid(), *(shmp + 2));
         //If shm_pid is 0, put my pid inside.
         if ( *(shmp + 2) == 0 ) {
-            fprintf(stderr, "%d: Setting shm_pid.\n", getpid());
             *(shmp + 2) = getpid();
             finished = 1;
         }
         
-        fprintf(stderr, "%d: Exiting critical section.\n", getpid());
         //Make sure to send the msg back into the queue
         //so someone else can go into critical section.
         if ( msgsnd(msgid, &msg, 0, 0) == -1 ) {
@@ -129,12 +178,6 @@ int main(int argc, char *argv[])
 //*****************************************************
 //BEGIN: Finishing up.
 
-    printf("Goodbye from %d\n", getpid());
-
     shmdt(shmp);
-
-    //Close message queue.
-    //msgctl(msgid, IPC_RMID, NULL);
-
     return 0;
 }
