@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    free(msg);
+//    free(msg);
 
 //END: Setting up message queue.
 //*****************************************************
@@ -171,6 +171,8 @@ int main(int argc, char *argv[])
     int child_count_total = 0;
     //The logical id given to a child.
     int child_id = 1;
+
+    int done_child = 0;
 
     do {
         /*If an interrupt occured, break.
@@ -214,13 +216,47 @@ int main(int argc, char *argv[])
             }
         }
 
-        //See if a child finished.
-        if ( waitpid(-1, NULL, WNOHANG) > 0 ) {
-            child_count--;
+
+        //If I grabbed a message from the queue.
+        if (msgrcv(msgid, msg, 0, 0, 0) == 0) {
+
+            fprintf(stderr, "oss entering critical section.\n");
+            //CRITICAL SECTION:
+            //
+            //if shm_pid is not 0, it contains
+            //the pid of child who is done.
+            
+            fprintf(stderr, "oss: shm_pid: %d.\n", *(shmp + 2));
+
+            if ( *(shmp + 2) != 0 ) {
+                //TODO: Log instead of print PID.
+                fprintf(stderr, "oss: user %d finished.\n", *(shmp + 2));
+                //Set shm_pid back to 0.
+                *(shmp + 2) = 0;
+                //Decrement the current number of children.
+                //child_count--;
+
+                done_child++;
+            }
+            
+            fprintf(stderr, "oss exiting critical section.\n");
+            //Make sure to send the msg back into the queue
+            //so someone else can go into critical section.
+            if ( msgsnd(msgid, msg, 0, 0) == -1 ) {
+                fprintf(stderr, "%s: Error: msgsnd() failed to send message.\n%s\n", argv[0], strerror(errno));
+                free(msg);
+                return 1;
+            }
+
         }
 
+        /*See if a child finished.
+        if ( waitpid(-1, NULL, WNOHANG) > 0 ) {
+            child_count--;
+        }*/
+
     //TODO: Fix this check for more than one child.
-    } while ( (child_count_total < 1) );
+    } while (done_child < 5);
 
 //END: Creating children.
 //*****************************************************
@@ -235,6 +271,8 @@ int main(int argc, char *argv[])
 
     //Close message queue.
     msgctl(msgid, IPC_RMID, NULL);
+
+    free(msg);
 
     return 0;
 }

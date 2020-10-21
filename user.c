@@ -21,7 +21,6 @@ int main(int argc, char *argv[])
 //*****************************************************
 ////BEGIN: Setting up shared memory.
 
-    int i = 0;
     
     key_t key;
     int shmid;
@@ -51,9 +50,9 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    for (i = 0; i < shm_size; i++) {
+    /*for (i = 0; i < shm_size; i++) {
        printf("User: shmp at %d: %d\n", i, *(shmp + i)); 
-    }
+    }*/
 
 
 
@@ -93,21 +92,48 @@ int main(int argc, char *argv[])
     }
     free(msg);*/
 
-    if ( msgrcv(msgid, &msg, 0, 0, 0) == -1 ) {
-        fprintf(stderr, "%s: Error: msgrcv() failed to receive message.\n%s\n", argv[0], strerror(errno));
-        return 1;
-    }
+    int finished = 0;
+    do {
+
+        fprintf(stderr, "%d: Waiting for message.\n", getpid());
+        //Wait for message.
+        if ( msgrcv(msgid, &msg, 0, 0, 0) == -1 ) {
+            fprintf(stderr, "%s: Error: msgrcv() failed to receive message.\n%s\n", argv[0], strerror(errno));
+            return 1;
+        }
+        //We now have the message.
+        //CRITICAL SECTION.
+        fprintf(stderr, "%d: Entering critical section.\n", getpid());
+
+
+        fprintf(stderr, "%d: shm_pid: %d\n", getpid(), *(shmp + 2));
+        //If shm_pid is 0, put my pid inside.
+        if ( *(shmp + 2) == 0 ) {
+            fprintf(stderr, "%d: Setting shm_pid.\n", getpid());
+            *(shmp + 2) = getpid();
+            finished = 1;
+        }
+        
+        fprintf(stderr, "%d: Exiting critical section.\n", getpid());
+        //Make sure to send the msg back into the queue
+        //so someone else can go into critical section.
+        if ( msgsnd(msgid, &msg, 0, 0) == -1 ) {
+            fprintf(stderr, "%s: Error: msgsnd() failed to send message.\n%s\n", argv[0], strerror(errno));
+            return 1;
+        }
+
+    } while (!finished);
 
 //END: Setting up message queue.
 //*****************************************************
 //BEGIN: Finishing up.
 
-    printf("Hello from user.\n");
+    printf("Goodbye from %d\n", getpid());
 
     shmdt(shmp);
 
     //Close message queue.
-    msgctl(msgid, IPC_RMID, NULL);
+    //msgctl(msgid, IPC_RMID, NULL);
 
     return 0;
 }
