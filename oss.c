@@ -38,6 +38,45 @@ typedef struct {
 //help declaration
 int help(char*);
 
+//done_flag lets master know when either the
+//timer is up or ctrl-c has been invoked.
+//Volatile so that compiler knows to check
+//every time rather than optimize. sig_atomic_t to ensure
+//it only gets changed by one thing at a time.
+static volatile sig_atomic_t done_flag = 0;
+
+//Sets a flag to indicate when program should exit gracefully.
+static void setdoneflag(int s)
+{
+    fprintf(stderr, "\nInterrupt Received.\n");
+    done_flag = 1;
+}
+
+//Set the signal handler to listen to the timer
+//and ctrl-c.
+static int setupinterrupt()
+{
+    struct sigaction act;
+    act.sa_handler = setdoneflag;
+    act.sa_flags = 0;
+    return (sigemptyset(&act.sa_mask) || sigaction(SIGALRM, &act, NULL) || sigaction(SIGINT, &act, NULL));
+}
+
+//Set up the interrupt timer for the time specified.
+static int setuptimer(int time)
+{
+    struct itimerval value;
+    if ( time <= 1000 ) {
+        value.it_interval.tv_sec = time;
+        value.it_interval.tv_usec = 0;
+    } else {
+        return -1;
+    }
+    value.it_value = value.it_interval;
+    return (setitimer(ITIMER_REAL, &value, NULL));
+}
+
+
 //*****************************************************
 ///////////////////////MAIN////////////////////////////
 //*****************************************************
@@ -81,9 +120,23 @@ int main(int argc, char *argv[])
     printf("Logfile name: %s\n", logfile);
     printf("Time to run: %d\n", ptime);
 
-    //END: Command line processing.
-    //*****************************************************
-    //BEGIN: Setting up shared memory.
+//END: Command line processing.
+//*****************************************************
+//BEGIN: Interrupt setup.
+
+    if ( setupinterrupt() == -1 ) {
+        fprintf(stderr, "%s: Error: Failed to set up interrupt.\n%s\n", argv[0], strerror(errno));
+        return 1;
+    }
+
+    if ( setuptimer(ptime) == -1 ) {
+        fprintf(stderr, "%s: Error: Failed to set up timer.\n%s\n", argv[0], strerror(errno));
+        return 1;
+    }
+
+//END: Interrupt setup.
+//*****************************************************
+//BEGIN: Setting up shared memory.
 
     key_t key;
     int shmid;
@@ -175,10 +228,10 @@ int main(int argc, char *argv[])
     int done_child = 0;
 
     do {
-        /*If an interrupt occured, break.
+        //If an interrupt occured, break.
         if ( done_flag ) {
             break;
-        }*/
+        }
 
         //If there are less children right now than the
         //simultaneous max,
@@ -261,6 +314,13 @@ int main(int argc, char *argv[])
 //END: Creating children.
 //*****************************************************
 //BEGIN: Finishing up.
+
+    //If an interrupt occured, kill the children.
+    if ( done_flag ) {
+        for ( i = 0; i < child_count_total; i++ ) {
+            kill(childpid[i], SIGINT);
+        }
+    }
 
     //Wait for all children.
     while ( wait(NULL) > 0 );
